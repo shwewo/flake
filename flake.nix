@@ -8,18 +8,18 @@
     tdesktop.url = "github:shwewo/telegram-desktop-patched";
   };
 
-  outputs = inputs @ { self, nixpkgs, flake-utils }:
+  outputs = inputs @ { self, nixpkgs, flake-utils, stable, tdesktop }:
     flake-utils.lib.eachDefaultSystem (system:
       let pkgs = nixpkgs.legacyPackages.${system}; in
       {
         packages = {
           audiorelay = pkgs.callPackage ./derivations/audiorelay.nix {};
           namespaced = pkgs.callPackage ./derivations/namespaced.nix {};
-          ephemeralbrowser = pkgs.callPackage ./derivations/ephemeralbrowser {};
+          ephemeralbrowser = pkgs.callPackage ./derivations/ephemeralbrowser.nix {};
           spotify = pkgs.callPackage ./derivations/spotify.nix { spotify = inputs.stable.legacyPackages.${system}.spotify; };
           microsocks = pkgs.callPackage ./derivations/microsocks.nix {};
           playit = pkgs.callPackage ./derivations/playit.nix {};
-          tdesktop = inputs.tdesktop.packages.${pkgs.system}.default;
+          tdesktop = inputs.tdesktop.packages.${system}.default;
         };
       }
     );
