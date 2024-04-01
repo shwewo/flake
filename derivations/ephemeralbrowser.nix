@@ -48,7 +48,6 @@ in stdenv.mkDerivation {
 
   meta = with lib; {
     description = "Firejailed google chrome/ungoogled chromium/firefox";
-    license = licenses.unfree;
     platforms = platforms.linux;
     mainProgram = "ephemeralbrowser";
   };

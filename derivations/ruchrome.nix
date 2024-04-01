@@ -45,7 +45,6 @@ in stdenv.mkDerivation {
 
   meta = with lib; {
     description = "Firejailed google chrome with russian certificates";
-    license = licenses.unfree;
     platforms = platforms.linux;
     mainProgram = "google-chrome-russia";
   };
