@@ -1,4 +1,4 @@
-{ pkgs, lib, stdenv, fetchurl, makeWrapper, makeDesktopItem, copyDesktopItems, ... }: 
+{ pkgs, lib, stdenv, makeWrapper, makeDesktopItem, copyDesktopItems, ... }: 
 let
   bin = ../scripts/ephemeralbrowser;
 in stdenv.mkDerivation {
@@ -45,4 +45,11 @@ in stdenv.mkDerivation {
       type = "Application";
     })
   ];
+
+  meta = with lib; {
+    description = "Firejailed google chrome/ungoogled chromium/firefox";
+    license = licenses.unfree;
+    platforms = platforms.linux;
+    mainProgram = "ephemeralbrowser";
+  };
 }

@@ -84,5 +84,6 @@ pkgs.stdenv.mkDerivation rec {
     homepage = "https://audiorelay.net";
     license = licenses.unfree;
     maintainers = [];
+    mainProgram = "audio-relay";
   };
 }

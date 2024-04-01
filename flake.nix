@@ -16,6 +16,7 @@
           audiorelay = pkgs.callPackage ./derivations/audiorelay.nix {};
           namespaced = pkgs.callPackage ./derivations/namespaced.nix {};
           ephemeralbrowser = pkgs.callPackage ./derivations/ephemeralbrowser.nix {};
+          ruchrome = pkgs.callPackage ./derivations/ruchrome.nix {};
           spotify = pkgs.callPackage ./derivations/spotify.nix { spotify = inputs.stable.legacyPackages.${system}.spotify; };
           microsocks = pkgs.callPackage ./derivations/microsocks.nix {};
           playit = pkgs.callPackage ./derivations/playit.nix {};

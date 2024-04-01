@@ -1,4 +1,4 @@
-{ pkgs, lib, stdenv, fetchurl, ... }: 
+{ pkgs, lib, stdenv, ... }: 
 let
   bin = ../scripts/namespaced;
 in stdenv.mkDerivation {
@@ -28,4 +28,10 @@ in stdenv.mkDerivation {
     chmod +x $out/bin/.namespaced-wrapped
     makeWrapper $out/bin/.namespaced-wrapped $out/bin/namespaced --prefix PATH : ${binPath}
   '';
+
+  meta = with lib; {
+    description = "Namespace script that uses your default ISP gateway and interface";
+    platforms = platforms.linux;
+    mainProgram = "namespaced";
+  };
 }

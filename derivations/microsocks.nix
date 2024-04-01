@@ -1,4 +1,4 @@
-{ pkgs, stdenv, fetchFromGitHub }: 
+{ pkgs, lib, stdenv, fetchFromGitHub }: 
 
 stdenv.mkDerivation {
   pname = "microsocks";
@@ -19,4 +19,12 @@ stdenv.mkDerivation {
     mkdir -p $out/bin/
     cp ./microsocks $out/bin/
   '';
+
+  meta = with lib; {
+    description = "Tiny socks5 server";
+    homepage = "https://github.com/rofl0r/microsocks";
+    license = license.mit;
+    platforms = platforms.linux;
+    mainProgram = "microsocks";
+  };
 }
