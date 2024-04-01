@@ -11,8 +11,8 @@
   outputs = inputs @ { self, nixpkgs, flake-utils, stable, tdesktop }:
     flake-utils.lib.eachDefaultSystem (system:
       let 
-        pkgs = import nixpkgs.legacyPackages.${system} { system = system; config.allowUnfree = 1; };
-        stable = import nixpkgs.legacyPackages.${system} { system = system; config.allowUnfree = 1; };
+        pkgs = import nixpkgs { system = system; config.allowUnfree = true; };
+        stable = import stable { system = system; config.allowUnfree = true; };
       in {
         packages = {
           audiorelay = pkgs.callPackage ./derivations/audiorelay.nix {};
