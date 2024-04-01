@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # By using "captive" browser, all values will be defaulted to dhcp and captive_default_interface, also chromium will be used
-captive_default_interface="wlp1s1"
+captive_default_interface="wlp1s0"
 
 default_interface=$(ip route show default | awk '{print $5; exit}')
 interfaces=""
