@@ -1,8 +1,28 @@
 #!/usr/bin/env bash
 # By using "captive" browser, all values will be defaulted to dhcp and captive_default_interface, also chromium will be used
-captive_default_interface="wlp1s0"
+captive_default_interface="wlp1s1"
+
+default_interface=$(ip route show default | awk '{print $5; exit}')
+interfaces=""
+
+for interface in $(ip -o -4 addr show | awk '$4 ~ /\/24/ {print $2}'); do
+  gateway=$(nmcli device show "$interface" | awk '$1 == "IP4.GATEWAY:" {print $2}')
+
+  if [[ $gateway != "--" ]]; then
+    interfaces+="$interface|"
+  fi
+done
+
+interfaces="${interfaces%|}"
 
 if [[ "$*" == *"--captive"* ]]; then
+  if ! ip link show $captive_default_interface &> /dev/null; then
+    result=$(zenity --forms --title="Captive Portal Browser" --text="Select interface" --add-combo="Network Interface:" --combo-values=$interfaces)
+    if [[ -z $result ]]; then
+      exit 1
+    fi
+    captive_default_interface=$result
+  fi
   dns=$(nmcli device show $captive_default_interface | awk '/IP4.DNS/ {print $2}')
   interface=$captive_default_interface
   browser="captive"
@@ -16,18 +36,6 @@ if [[ "$*" == *"--captive"* ]]; then
     --app=http://ifconfig.me >> /tmp/captive.log 2>&1"
   profile="chromium"
 else
-  default_interface=$(ip route show default | awk '{print $5; exit}')
-  interfaces=""
-
-  for interface in $(ip -o -4 addr show | awk '$4 ~ /\/24/ {print $2}'); do
-    gateway=$(nmcli device show "$interface" | awk '$1 == "IP4.GATEWAY:" {print $2}')
-
-    if [[ $gateway != "--" ]]; then
-      interfaces+="$interface|"
-    fi
-  done
-
-  interfaces="${interfaces%|}"
   result=$(zenity --forms --title="Configuration" \
     --text="Please configure your settings" \
     --add-combo="Browser:" --combo-values="google_chrome|chromium|firefox" \
