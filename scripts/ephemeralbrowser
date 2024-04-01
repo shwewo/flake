@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# By using "captive" browser, all values will be defaulted to dhcp and captive_default_interface, also chromium will be used
+captive_default_interface="wlp1s0"
+
+if [[ "$*" == *"--captive"* ]]; then
+  dns=$(nmcli device show $captive_default_interface | awk '/IP4.DNS/ {print $2}')
+  interface=$captive_default_interface
+  browser="captive"
+  browser_path="chromium \
+    --class=captive-browser \
+    --user-data-dir=$HOME/.config/chromium-captive \
+    --no-first-run \
+    --new-window \
+    --window-size=500,700 \
+    -no-default-browser-check \
+    --app=http://ifconfig.me >> /tmp/captive.log 2>&1"
+  profile="chromium"
+else
+  default_interface=$(ip route show default | awk '{print $5; exit}')
+  interfaces=""
+
+  for interface in $(ip -o -4 addr show | awk '$4 ~ /\/24/ {print $2}'); do
+    gateway=$(nmcli device show "$interface" | awk '$1 == "IP4.GATEWAY:" {print $2}')
+
+    if [[ $gateway != "--" ]]; then
+      interfaces+="$interface|"
+    fi
+  done
+
+  interfaces="${interfaces%|}"
+  result=$(zenity --forms --title="Configuration" \
+    --text="Please configure your settings" \
+    --add-combo="Browser:" --combo-values="google_chrome|chromium|firefox" \
+    --add-combo="Network Interface:" --combo-values="novpn|default|"$interfaces \
+    --add-combo="DNS Server:" --combo-values="dhcp|1.1.1.1|8.8.8.8|77.88.8.1")
+
+  if [[ -z $result ]]; then
+    exit 1
+  fi
+
+  browser=$(echo "$result" | cut -d'|' -f1)
+  interface=$(echo "$result" | cut -d'|' -f2) 
+  dns=$(echo "$result" | cut -d'|' -f3)
+
+  if [[ $dns == "dhcp" ]]; then
+    if [[ $interface == "novpn" || $interface == "default" ]]; then
+      dhcp_interface=$default_interface
+    else
+      dhcp_interface=$interface
+    fi
+    
+    dns=$(nmcli device show $dhcp_interface | awk '/IP4.DNS/ {print $2}')
+  fi
+
+  if [[ $interface == "novpn" ]]; then
+    interface=$default_interface
+  fi
+
+  if [[ $browser == "google_chrome" ]]; then
+    browser_path="google-chrome-stable --class=ephemeralbrowser --no-first-run -no-default-browser-check https://ifconfig.me"
+    profile="google-chrome"
+  elif [[ $browser == "chromium" ]]; then
+    browser_path="chromium --class=ephemeralbrowser --no-first-run -no-default-browser-check --user-data-dir=/tmp/ephemeralbrowser/.config/chromium https://ifconfig.me"
+    profile="chromium"
+  elif [[ $browser == "firefox" ]]; then
+    browser_path="firefox -no-remote --class ephemeralbrowser --name ephemeralbrowser https://ifconfig.me"
+    profile="firefox"
+  fi
+fi
+
+gateway=$(nmcli device show "$interface" | awk '$1 == "IP4.GATEWAY:" {print $2}')
+mkdir -p /tmp/ephemeralbrowser
+
+if [[ $browser == "captive" ]]; then
+  notify-send --icon=nix-snowflake "Captive Portal Browser" "GW: $gateway DNS: $dns"
+else
+  notify-send --icon=browser "Ephemeral Browser" "$browser | $interface | $dns"
+fi
+
+if [[ $interface != "default" ]]; then
+  firejail \
+    --ignore='include whitelist-run-common.inc' \
+    --blacklist='/var/run/nscd' \
+    --private=/tmp/ephemeralbrowser \
+    --profile="$profile" \
+    --net="$interface" \
+    --defaultgw=$gateway \
+    --dns="$dns" \
+    bash -c "$browser_path"
+else
+  firejail \
+    --ignore='include whitelist-run-common.inc' \
+    --blacklist='/var/run/nscd' \
+    --private=/tmp/ephemeralbrowser \
+    --profile="$profile" \
+    --dns="$dns" \
+    bash -c "$browser_path"
+fi
