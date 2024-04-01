@@ -14,7 +14,7 @@ nix run github:shwewo/<program>
 
 ```nix
 inputs = {
-  shwewo.url = "github:shwewo/telegram-desktop-patched";
+  shwewo.url = "github:shwewo/flake";
   # your other inputs
 };
 
