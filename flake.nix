@@ -8,7 +8,7 @@
     tdesktop.url = "github:nixos/shwewo/telegram-desktop-patched";
   };
 
-  outputs = { self, nixpkgs, flake-utils, inputs }:
+  outputs = inputs @ { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let pkgs = nixpkgs.legacyPackages.${system}; in
       {
