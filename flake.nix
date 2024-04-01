@@ -5,7 +5,7 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     stable.url = "github:nixos/nixpkgs/nixos-23.11";
-    tdesktop.url = "github:nixos/shwewo/telegram-desktop-patched";
+    tdesktop.url = "github:shwewo/telegram-desktop-patched";
   };
 
   outputs = inputs @ { self, nixpkgs, flake-utils }:
