@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "This script must be run as root."
+  exit 1
+fi
+
+if [[ $# -eq 0 || -z "$2" ]]; then
+  echo "Usage: sudo $0 <device> <ESP path>"
+  exit 1
+fi
+
+device=$1
+esp_path=$2
+
+if [ ! -e "$device" ]; then
+  echo "Device $device does not exist."
+  exit 1
+fi
+
+if [ ! -e "$2" ]; then
+  echo "ESP path '$esp_path' does not exist."
+  exit 1
+fi
+
+confirm() {
+  read -r -p "$1 [y/N] " response
+  case "$response" in
+    [yY][eE][sS]|[yY]) 
+      true
+      ;;
+    *)
+      false
+      ;;
+  esac
+} 
+
+ykpersonalize -2 -ochal-resp -ochal-hmac
+
+SALT_LENGTH=16
+SALT="$(dd if=/dev/random bs=1 count=$SALT_LENGTH 2>/dev/null | rbtohex)"
+KEY_LENGTH=512
+ITERATIONS=1000000
+
+if confirm "Enable 2FA?"; then
+  while true; do
+    printf "Passphrase: "
+    read -s PASSPHRASE
+    printf "\nConfirm passphrase: "
+    read -s CONFIRM_PASSPHRASE
+    if [ "$PASSPHRASE" == "$CONFIRM_PASSPHRASE" ]; then
+      echo -e "\n"
+      break
+    else
+      echo -e "\nPassphrases do not match. Please try again."
+    fi
+  done
+fi
+
+CHALLENGE="$(echo -n $SALT | openssl dgst -binary -sha512 | rbtohex)"
+RESPONSE=$(ykchalresp -2 -x $CHALLENGE 2>/dev/null)
+
+if [[ -z "$PASSPHRASE" ]]; then
+  LUKS_KEY=$(echo | pbkdf2-sha512 $(($KEY_LENGTH / 8)) $ITERATIONS $RESPONSE | rbtohex)
+else
+  LUKS_KEY=$(echo -n $PASSPHRASE | pbkdf2-sha512 $(($KEY_LENGTH / 8)) $ITERATIONS $RESPONSE | rbtohex)
+fi
+
+mkdir -p "$esp_path/crypt-storage"
+echo -ne "$SALT\n$ITERATIONS" > /boot/crypt-storage/default
+echo "Adding LUKS key to $device"
+echo -n "$LUKS_KEY" | hextorb > /tmp/yklukskey
+chmod 0600 /tmp/yklukskey
+cryptsetup luksAddKey $device /tmp/yklukskey
+rm /tmp/yklukskey
