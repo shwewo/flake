@@ -80,10 +80,6 @@ parse_options() {
   IFS=", " read -r NAMESERVER_1 NAMESERVER_2 <<< "$DNS"
 }
 
-log() {
-  echo "$(date +"%b %d %H:%M:%S"): $@"
-}
-
 ########################################################################################################################
 
 get_gateway() {
@@ -160,14 +156,45 @@ country_check() {
   fi
 }
 
+conn_check() {
+  local connected=true;
+  sleep 3
+  while true; do
+    if ip netns exec $NAME ping -c 1 -W 3 $NAMESERVER_1 &> /dev/null; then
+      if [ "$connected" = false ]; then
+        echo "Connection restored"
+      fi
+      connected=true
+    else
+      connected=false
+      echo "No ping from $NAMESERVER_1, are we connected to the internet?"
+    fi
+    sleep 15
+  done
+}
+
+monitor() {
+  ip monitor route dev $DEFAULT_IFACE | while read event; do
+    case "$event" in
+      *"$DEFAULT_GW"*)
+        do_rules "del"
+        [ "$OLD_MASQUARADE" = false ] && do_iptables "-D"
+        break
+      ;;
+    esac
+  done
+}
+
 cleanup() {
   if [ "$RUNNING" = true ]; then
     RUNNING=false
-    if [ "$NOKILL" = false ]; then
-      echo "Terminating all processes inside of $NAME namespace..."
+    if [ "$NOKILL" = true ]; then
+      kill -SIGINT -$RUNNING_PID &>/dev/null
+    else
       local pids=$(find -L /proc/[1-9]*/task/*/ns/net -samefile /run/netns/$NAME | cut -d/ -f5)
       kill -SIGINT -$pids &> /dev/null
       kill -SIGTERM -$pids &> /dev/null
+      kill -SIGINT -$RUNNING_PID &>/dev/null
     fi
 
     do_rules "del"
@@ -188,7 +215,7 @@ cleanup() {
 init() {
   define_variables
   parse_options "$@"
-  trap cleanup INT
+  trap cleanup INT TERM
 
   ip netns add $NAME
   ip link add $VETH0_NAME type veth peer name $VETH1_NAME
@@ -202,21 +229,14 @@ init() {
   mkdir -p /etc/netns/$NAME
   echo -e "nameserver $NAMESERVER_1\nnameserver $NAMESERVER_2" > /etc/netns/$NAME/resolv.conf
   sysctl -wq net.ipv4.ip_forward=1
+  conn_check &
   
   while true; do
     get_gateway
     do_rules "add"
     [ "$OLD_MASQUARADE" = false ] && do_iptables "-A" 2
     country_check
-    ip monitor route dev $DEFAULT_IFACE | while read -r event; do
-      case "$event" in
-        *"$DEFAULT_GW"*)
-          do_rules "del"
-          [ "$OLD_MASQUARADE" = false ] && do_iptables "-D"
-          break
-        ;;
-      esac
-    done
+    monitor & wait
   done
 }
 
