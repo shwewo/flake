@@ -87,7 +87,7 @@ get_gateway() {
     DEFAULT_IFACE=$(ip route show default | awk '{print $5; exit}')
     DEFAULT_GW=$(ip route show default | awk '{print $9; exit}')
     NAMESPACE_GW=$(ip route show default | awk '{print $3; exit}')
-    if [[ -n "$DEFAULT_IFACE" || -n "$NAMESPACE_GW" || -n "$DEFAULT_GW" ]]; then
+    if [[ -n "$DEFAULT_IFACE" && -n "$NAMESPACE_GW" && -n "$DEFAULT_GW" ]]; then
       break
     else
       sleep 3
@@ -113,17 +113,21 @@ do_iptables() {
 }
 
 do_net_access() {
-  iptables $1 INPUT -i $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT 2>/dev/null
-  iptables $1 FORWARD -i $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT 2>/dev/null
-  iptables $1 OUTPUT -o $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT 2>/dev/null
+  already_exists=$(iptables-save | grep -q -- "-A INPUT -i $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT" && echo true || echo false)
 
-  iptables $1 INPUT -i $VETH0_NAME -p tcp --dport 443 -d cloudflare.com -j ACCEPT 2>/dev/null
-  iptables $1 FORWARD -i $VETH0_NAME -p tcp --dport 443 -d cloudflare.com -j ACCEPT 2>/dev/null
-  iptables $1 OUTPUT -o $VETH0_NAME -p tcp --sport 443 -d cloudflare.com -j ACCEPT 2>/dev/null
-  
-  iptables $1 INPUT -i $VETH0_NAME -j DROP 2>/dev/null
-  iptables $1 FORWARD -i $VETH0_NAME -j DROP 2>/dev/null
-  iptables $1 OUTPUT -o $VETH0_NAME -j DROP 2>/dev/null
+  if [[ "$1" == "-A" && "$already_exists" = false || "$1" == "-D" ]]; then
+    iptables $1 INPUT -i $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT 2>/dev/null
+    iptables $1 FORWARD -i $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT 2>/dev/null
+    iptables $1 OUTPUT -o $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT 2>/dev/null
+
+    iptables $1 INPUT -i $VETH0_NAME -p tcp --dport 80 -d 104.16.133.229 -j ACCEPT 2>/dev/null
+    iptables $1 FORWARD -i $VETH0_NAME -p tcp --dport 80 -d 104.16.133.229 -j ACCEPT 2>/dev/null
+    iptables $1 OUTPUT -o $VETH0_NAME -p tcp --sport 80 -d 104.16.133.229 -j ACCEPT 2>/dev/null
+    
+    iptables $1 INPUT -i $VETH0_NAME -j DROP 2>/dev/null
+    iptables $1 FORWARD -i $VETH0_NAME -j DROP 2>/dev/null
+    iptables $1 OUTPUT -o $VETH0_NAME -j DROP 2>/dev/null
+  fi
 }
 
 ########################################################################################################################
@@ -134,7 +138,7 @@ country_check() {
     do_net_access "-A"
 
     while true; do
-      local response=$(ip netns exec $NAME curl -m 10 -s https://cloudflare.com/cdn-cgi/trace)
+      local response=$(ip netns exec $NAME curl -m 3 -s http://104.16.133.229/cdn-cgi/trace)
 
       if [ $? -eq 0 ] && [ -n "$response" ]; then
         local country=$(echo -e "$response" | awk -F= '/^loc/{print $2; exit 0}')
@@ -160,28 +164,16 @@ conn_check() {
   local connected=true;
   sleep 3
   while true; do
-    if ip netns exec $NAME ping -c 1 -W 3 $NAMESERVER_1 &> /dev/null; then
+    if ip netns exec $NAME ping -c 1 -W 1 $NAMESERVER_1 &> /dev/null; then
       if [ "$connected" = false ]; then
         echo "Connection restored"
       fi
       connected=true
     else
       connected=false
-      echo "No ping from $NAMESERVER_1, are we connected to the internet?"
+      echo "No ping from $NAMESERVER_1"
     fi
     sleep 15
-  done
-}
-
-monitor() {
-  ip monitor route dev $DEFAULT_IFACE | while read event; do
-    case "$event" in
-      *"$DEFAULT_GW"*)
-        do_rules "del"
-        [ "$OLD_MASQUARADE" = false ] && do_iptables "-D"
-        break
-      ;;
-    esac
   done
 }
 
@@ -190,7 +182,9 @@ cleanup() {
     RUNNING=false
     if [ "$NOKILL" = true ]; then
       kill -SIGINT -$RUNNING_PID &>/dev/null
+      kill -SIGTERM -$RUNNING_PID &> /dev/null
     else
+      echo "Terminating other programs..."
       local pids=$(find -L /proc/[1-9]*/task/*/ns/net -samefile /run/netns/$NAME | cut -d/ -f5)
       kill -SIGINT -$pids &> /dev/null
       kill -SIGTERM -$pids &> /dev/null
@@ -232,11 +226,15 @@ init() {
   conn_check &
   
   while true; do
+    do_rules "del"
+    [ "$OLD_MASQUARADE" = false ] && do_iptables "-D"
     get_gateway
     do_rules "add"
-    [ "$OLD_MASQUARADE" = false ] && do_iptables "-A" 2
-    country_check
-    monitor & wait
+    [ "$OLD_MASQUARADE" = false ] && do_iptables "-A"
+    country_check &
+    $(ip monitor route | while read -r line; do
+      [[ $line == *"\$VETH0_IP"* || $line == *"\$TABLE"* || $line == *"\$NAME"* ]] || exit 0
+    done)
   done
 }
 
