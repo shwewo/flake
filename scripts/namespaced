@@ -22,13 +22,17 @@ Options:
   --fwmark <fwmark>            Fwmark of the routed packets (default: 105)
   --table <table>              Routing table of the namespace (default: 105)
   --nokill                     Don't kill programs inside of namespace
+  --nocreate                   Don't create namespace (external program would have to manage 'ip netns add')
 EOF
 }
 
 define_variables() {
   RUNNING=true
   RUNNING_PID=$$
-  
+  CONN_CHECK_PID=
+  COUNTRY_CHECK_PID=
+  RTMON_PID=
+
   NAME="nsd"
   COUNTRY_CHECK=
   VETH0_NAME=
@@ -39,6 +43,7 @@ define_variables() {
   FWMARK=105
   TABLE=105
   NOKILL=false
+  NOCREATE=false
   
   NAMESPACE_GW=
   DEFAULT_GW=
@@ -60,7 +65,8 @@ parse_options() {
       --veth1-ip) shift; VETH1_IP=$1; shift ;;
       --fwmark) shift; FWMARK=$1; shift ;;
       --table) shift; TABLE=$1; shift ;;
-      --nokill) shift; NOKILL=true;;
+      --nokill) shift; NOKILL=true ;;
+      --nocreate) shift; NOCREATE=true ;;
       *) echo  "Invalid parameter: $1" 1>&2; exit 1 ;;
     esac
   done
@@ -83,6 +89,7 @@ parse_options() {
 ########################################################################################################################
 
 get_gateway() {
+  echo "Waiting for the default interface..."
   while true; do
     DEFAULT_IFACE=$(ip route show default | awk '{print $5; exit}')
     DEFAULT_GW=$(ip route show default | awk '{print $9; exit}')
@@ -101,103 +108,120 @@ get_gateway() {
 }
 
 do_rules() {
-  ip rule $1 fwmark $FWMARK table $TABLE 2>/dev/null
-  ip rule $1 from $VETH1_IP table $TABLE 2>/dev/null
-  ip rule $1 to $VETH1_IP table $TABLE 2>/dev/null
-  ip route $1 default via $NAMESPACE_GW dev $DEFAULT_IFACE table $TABLE 2>/dev/null
-  ip route $1 $VETH1_IP via $VETH0_IP dev $VETH0_NAME table $TABLE 2>/dev/null
+  ip rule $1 fwmark $FWMARK table $TABLE 2> /dev/null
+  ip rule $1 from $VETH1_IP table $TABLE 2> /dev/null
+  ip rule $1 to $VETH1_IP table $TABLE 2> /dev/null
+  ip route $1 default via $NAMESPACE_GW dev $DEFAULT_IFACE table $TABLE 2> /dev/null
+  ip route $1 $VETH1_IP via $VETH0_IP dev $VETH0_NAME table $TABLE 2> /dev/null
 }
 
 do_iptables() {
-  iptables -t nat $1 POSTROUTING -o "$DEFAULT_IFACE" -j MASQUERADE 2>/dev/null
+  iptables -t nat $1 POSTROUTING -o "$DEFAULT_IFACE" -j MASQUERADE
 }
 
 do_net_access() {
-  already_exists=$(iptables-save | grep -q -- "-A INPUT -i $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT" && echo true || echo false)
+  iptables $1 INPUT -i $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT 2> /dev/null
+  iptables $1 FORWARD -i $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT 2> /dev/null
+  iptables $1 OUTPUT -o $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT 2> /dev/null
 
-  if [[ "$1" == "-A" && "$already_exists" = false || "$1" == "-D" ]]; then
-    iptables $1 INPUT -i $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT 2>/dev/null
-    iptables $1 FORWARD -i $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT 2>/dev/null
-    iptables $1 OUTPUT -o $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT 2>/dev/null
-
-    iptables $1 INPUT -i $VETH0_NAME -p tcp --dport 80 -d 104.16.133.229 -j ACCEPT 2>/dev/null
-    iptables $1 FORWARD -i $VETH0_NAME -p tcp --dport 80 -d 104.16.133.229 -j ACCEPT 2>/dev/null
-    iptables $1 OUTPUT -o $VETH0_NAME -p tcp --sport 80 -d 104.16.133.229 -j ACCEPT 2>/dev/null
-    
-    iptables $1 INPUT -i $VETH0_NAME -j DROP 2>/dev/null
-    iptables $1 FORWARD -i $VETH0_NAME -j DROP 2>/dev/null
-    iptables $1 OUTPUT -o $VETH0_NAME -j DROP 2>/dev/null
-  fi
+  iptables $1 INPUT -i $VETH0_NAME -p tcp --dport 80 -d 104.16.133.229 -j ACCEPT 2> /dev/null
+  iptables $1 FORWARD -i $VETH0_NAME -p tcp --dport 80 -d 104.16.133.229 -j ACCEPT 2> /dev/null
+  iptables $1 OUTPUT -o $VETH0_NAME -p tcp --sport 80 -d 104.16.133.229 -j ACCEPT 2> /dev/null
+  
+  iptables $1 INPUT -i $VETH0_NAME -j DROP 2> /dev/null
+  iptables $1 FORWARD -i $VETH0_NAME -j DROP 2> /dev/null
+  iptables $1 OUTPUT -o $VETH0_NAME -j DROP 2> /dev/null
 }
 
 ########################################################################################################################
 
-country_check() {
-  if [[ -n "$COUNTRY_CHECK" ]]; then
-    echo "Checking country..."
-    do_net_access "-A"
-
+conn_check() {
+  (
+    local connected=true;
     while true; do
-      local response=$(ip netns exec $NAME curl -m 3 -s http://104.16.133.229/cdn-cgi/trace)
+      local masquarade=$(iptables-save | grep -q -- "-A POSTROUTING -o $DEFAULT_IFACE -j MASQUERADE" && echo true || echo false)
 
-      if [ $? -eq 0 ] && [ -n "$response" ]; then
-        local country=$(echo -e "$response" | awk -F= '/^loc/{print $2; exit 0}')
-        local ip=$(echo -e "$response" | awk -F= '/^ip/{print $2; exit 0}')
-
-        if [[ $country != "$COUNTRY_CHECK" ]]; then
-          echo -e "IP: $ip\nCountry: $country\nNetwork access is disabled!"
-          break
-        else
-          echo -e "IP: $ip\nCountry: $country"
-          do_net_access "-D"
-          break
-        fi
-      else
-        echo "Curl request failed, retrying..."        
-        sleep 1
+      if [ "$masquarade" = false ]; then
+        echo "Iptables rules got deleted, restoring"
+        do_iptables "-A"
       fi
+      if ! ip netns exec $NAME ping -c 1 -W 1 $NAMESERVER_1 &> /dev/null; then
+        connected=false
+        echo "No ping from $NAMESERVER_1, restarting"
+        do_net_access "-D"
+        kill $RTMON_PID 2> /dev/null
+        break
+      fi
+      sleep 10
     done
-  fi
+  ) &
+  CONN_CHECK_PID=$!
 }
 
-conn_check() {
-  local connected=true;
-  sleep 3
-  while true; do
-    if ip netns exec $NAME ping -c 1 -W 1 $NAMESERVER_1 &> /dev/null; then
-      if [ "$connected" = false ]; then
-        echo "Connection restored"
-      fi
-      connected=true
-    else
-      connected=false
-      echo "No ping from $NAMESERVER_1"
+
+country_check() {
+  (
+    local already_running=$(iptables-save | grep -q -- "-A INPUT -d $NAMESERVER_1/32 -i $VETH0_NAME -p icmp -j ACCEPT" && echo true || echo false)
+
+    if [[ -n "$COUNTRY_CHECK" && "$already_running" = false ]]; then
+      echo "Checking country..."
+      do_net_access "-A"
+
+      while true; do
+        local response=$(ip netns exec $NAME curl -m 3 -s http://104.16.133.229/cdn-cgi/trace)
+
+        if [ $? -eq 0 ] && [ -n "$response" ]; then
+          local country=$(echo -e "$response" | awk -F= '/^loc/{print $2; exit 0}')
+          local ip=$(echo -e "$response" | awk -F= '/^ip/{print $2; exit 0}')
+
+          if [[ $country != "$COUNTRY_CHECK" ]]; then
+            echo -e "IP: $ip\nCountry: $country\nNetwork access is disabled!"
+            break
+          else
+            echo -e "IP: $ip\nCountry: $country"
+            do_net_access "-D"
+            break
+          fi
+        else
+          echo "Curl request failed, retrying..."        
+          sleep 1
+        fi
+      done
     fi
-    sleep 15
-  done
+  ) &
+  COUNTRY_CHECK_PID=$!
+}
+
+rtmon() {
+  (
+    ip monitor route dev $DEFAULT_IFACE | while read -r line; do
+      [[ $line != *"$VETH0_IP"* && $line != *"$TABLE"* && $line != *"$NAME"* ]] && kill $BASHPID 2> /dev/null
+    done
+  ) &
+  RTMON_PID=$!
 }
 
 cleanup() {
   if [ "$RUNNING" = true ]; then
     RUNNING=false
     if [ "$NOKILL" = true ]; then
-      kill -SIGINT -$RUNNING_PID &>/dev/null
+      kill -SIGINT -$RUNNING_PID &> /dev/null
       kill -SIGTERM -$RUNNING_PID &> /dev/null
     else
       echo "Terminating other programs..."
       local pids=$(find -L /proc/[1-9]*/task/*/ns/net -samefile /run/netns/$NAME | cut -d/ -f5)
       kill -SIGINT -$pids &> /dev/null
       kill -SIGTERM -$pids &> /dev/null
-      kill -SIGINT -$RUNNING_PID &>/dev/null
+      kill -SIGINT -$RUNNING_PID &> /dev/null
     fi
 
     do_rules "del"
     [ "$OLD_MASQUARADE" = false ] && do_iptables "-D"
     do_net_access "-D"
-    sysctl -wq net.ipv4.ip_forward=$OLD_IPV4_FORWARD 2>/dev/null
+    sysctl -wq net.ipv4.ip_forward=$OLD_IPV4_FORWARD &> /dev/null
 
-    ip link del $VETH0_NAME 2>/dev/null
-    ip netns del $NAME 2>/dev/null
+    ip link del $VETH0_NAME &> /dev/null
+    ip netns del $NAME &> /dev/null
     rm -rf /etc/netns/$NAME/ &> /dev/null
     rm -rf /var/run/netns/$NAME/ &> /dev/null
 
@@ -211,7 +235,7 @@ init() {
   parse_options "$@"
   trap cleanup INT TERM
 
-  ip netns add $NAME
+  [ "$NOCREATE" = false] && ip netns add $NAME
   ip link add $VETH0_NAME type veth peer name $VETH1_NAME
   ip link set $VETH1_NAME netns $NAME
   ip addr add $VETH0_IP/24 dev $VETH0_NAME
@@ -223,18 +247,21 @@ init() {
   mkdir -p /etc/netns/$NAME
   echo -e "nameserver $NAMESERVER_1\nnameserver $NAMESERVER_2" > /etc/netns/$NAME/resolv.conf
   sysctl -wq net.ipv4.ip_forward=1
-  conn_check &
-  
+
   while true; do
-    do_rules "del"
-    [ "$OLD_MASQUARADE" = false ] && do_iptables "-D"
     get_gateway
     do_rules "add"
     [ "$OLD_MASQUARADE" = false ] && do_iptables "-A"
-    country_check &
-    $(ip monitor route | while read -r line; do
-      [[ $line == *"\$VETH0_IP"* || $line == *"\$TABLE"* || $line == *"\$NAME"* ]] || exit 0
-    done)
+
+    rtmon 2> /dev/null
+    country_check 2> /dev/null
+    conn_check 2> /dev/null
+    wait $RTMON_PID
+    kill $CONN_CHECK_PID $COUNTRY_CHECK_PID 2> /dev/null
+
+    do_rules "del"
+    [ "$OLD_MASQUARADE" = false ] && do_iptables "-D"
+    do_net_access "-D"
   done
 }
 
