@@ -34,6 +34,7 @@ define_variables() {
   RUNNING_PID=$$
   CONN_CHECK_PID=
   COUNTRY_CHECK_PID=
+  INOTIFY_PID=
   RTMON_PID=
 
   NAME="direct"
@@ -52,8 +53,7 @@ define_variables() {
   
   NAMESPACE_GW=
   DEFAULT_IFACE=
-  NAMESERVER_1=
-  NAMESERVER_2=
+  NAMESERVERS="nameserver 1.1.1.1\nnameserver 1.0.0.1"
   OLD_IPV4_FORWARD=$(sysctl -n net.ipv4.ip_forward)
 }
 
@@ -63,7 +63,7 @@ parse_options() {
       -h|--help) usage; exit 0 ;;
       -n|--name) shift; NAME=$1; shift ;;
       -c|--country) shift; COUNTRY_CHECK=$1; shift ;;
-      -d|--dns) shift; DNS=$1; shift ;;
+      -d|--dns) shift; NAMESERVERS=$(echo $1 | sed 's/, /\n/g' | sed 's/^/nameserver /'); shift ;;
       -h|--hosts-file) shift; HOSTS_FILE=$1; shift ;;
       -p|--program) shift; PROGRAM=$1; shift ;;
       -u|--user) shift; PROGRAM_USER=$1; shift ;;
@@ -89,8 +89,7 @@ parse_options() {
   NAME=$NAME"_nsd"
   VETH0_NAME=$NAME"0"
   VETH1_NAME=$NAME"1"
-  IFS=", " read -r NAMESERVER_1 NAMESERVER_2 <<< "$DNS"
-  
+
   if [ -d "/etc/netns/$NAME" ]; then
     echo "This script is already running!"
     exit 1
@@ -131,7 +130,7 @@ do_iptables() {
 
 do_blackhole() {
   iptables -t raw $1 PREROUTING -i $VETH0_NAME -p tcp -d 104.16.133.229 --dport 80 -j ACCEPT
-  iptables -t raw $1 PREROUTING -i $VETH0_NAME -p icmp -d $NAMESERVER_1 -j ACCEPT
+  iptables -t raw $1 PREROUTING -i $VETH0_NAME -p icmp -d 1.1.1.1 -j ACCEPT
   iptables -t raw $1 PREROUTING -i $VETH0_NAME -d $VETH0_IP -j ACCEPT
   iptables -t raw $1 PREROUTING -i $VETH0_NAME -d $VETH1_IP -j ACCEPT
   iptables -t raw $1 PREROUTING -i $VETH0_NAME -j DROP
@@ -146,7 +145,7 @@ conn_check() {
     local connected=true
     
     while true; do
-      if ip netns exec $NAME ping -c 1 -W 3 $NAMESERVER_1 &> /dev/null; then
+      if ip netns exec $NAME ping -c 1 -W 3 1.1.1.1 &> /dev/null; then
         [ "$connected" = false ] && echo "Connection restored"
         connected=true
         restart_count=0
@@ -154,11 +153,11 @@ conn_check() {
         connected=false
         ((restart_count++))
         if [ "$restart_count" = 5 ]; then
-          echo "No ping from $NAMESERVER_1, restarting"
+          echo "No ping from 1.1.1.1, restarting"
           kill $RTMON_PID &> /dev/null
           break
         fi
-        echo "No ping from $NAMESERVER_1"
+        echo "No ping from 1.1.1.1"
       fi
       sleep 10
     done
@@ -199,6 +198,16 @@ country_check() {
   COUNTRY_CHECK_PID=$!
 }
 
+inotify() {
+  (
+    inotifywait -r -m -e create,modify,delete /etc/netns/$NAME/ | while read -r line; do
+      echo -e "$NAMESERVERS" > /etc/netns/$NAME/resolv.conf
+      [ -n "$HOSTS_FILE" ] && cat $HOSTS_FILE > /etc/netns/$NAME/hosts
+    done
+  ) &
+  INOTIFY_PID=$!
+}
+
 rtmon() {
   (
     local rtmon_pid=$BASHPID
@@ -216,17 +225,7 @@ cleanup() {
   if [ "$RUNNING" = true ]; then
     RUNNING=false
 
-    ip link del $VETH0_NAME &> /dev/null
-    ip netns del $NAME &> /dev/null
-    rm -rf /etc/netns/$NAME/ &> /dev/null
-    rm -rf /var/run/netns/$NAME/ &> /dev/null
-    sysctl -wq net.ipv4.ip_forward=$OLD_IPV4_FORWARD &> /dev/null
-
-    do_rules "del" &> /dev/null
-    do_iptables "-D" &> /dev/null
-    do_blackhole "-D" &> /dev/null
-
-    kill $COUNTRY_CHECK_PID $RTMON_PID $CONN_CHECK_PID &> /dev/null
+    kill $COUNTRY_CHECK_PID $RTMON_PID $CONN_CHECK_PID $INOTIFY_PID &> /dev/null
 
     if [ "$NOKILL" = true ]; then
       kill -SIGINT -$RUNNING_PID &> /dev/null
@@ -240,6 +239,16 @@ cleanup() {
       kill -SIGINT -$RUNNING_PID &> /dev/null
       kill -SIGTERM -$RUNNING_PID &> /dev/null
     fi
+
+    ip link del $VETH0_NAME &> /dev/null
+    ip netns del $NAME &> /dev/null
+    rm -rf /etc/netns/$NAME/ &> /dev/null
+    rm -rf /var/run/netns/$NAME/ &> /dev/null
+    sysctl -wq net.ipv4.ip_forward=$OLD_IPV4_FORWARD &> /dev/null
+
+    do_rules "del" &> /dev/null
+    do_iptables "-D" &> /dev/null
+    do_blackhole "-D" &> /dev/null
 
     echo "Exiting..."
     exit 0
@@ -259,9 +268,11 @@ init() {
   ip netns exec $NAME sysctl -wq net.ipv4.ping_group_range="$(sysctl -n net.ipv4.ping_group_range)"
 
   mkdir -p /etc/netns/$NAME
-  echo -e "nameserver $NAMESERVER_1\nnameserver $NAMESERVER_2" > /etc/netns/$NAME/resolv.conf
-  [ -n "$HOSTS_FILE" ] && echo "Copying hosts file" && cp -v $HOSTS_FILE /etc/netns/$NAME/hosts && echo -e ""
   sysctl -wq net.ipv4.ip_forward=1
+
+  echo -e "$NAMESERVERS" > /etc/netns/$NAME/resolv.conf
+  [ -n "$HOSTS_FILE" ] && cat $HOSTS_FILE > /etc/netns/$NAME/hosts
+  inotify
 
   if [ -n "$PROGRAM" ]; then
     echo "Launching program"
@@ -277,6 +288,7 @@ init() {
     rtmon 2> /dev/null
     country_check 2> /dev/null
     conn_check 2> /dev/null
+
     wait $RTMON_PID
     kill $CONN_CHECK_PID $COUNTRY_CHECK_PID &> /dev/null
 
