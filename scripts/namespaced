@@ -14,7 +14,7 @@ To execute programs inside of network namespace, use:
 
 Options:
   -h --help                    Show help
-  -n --name <name>             Veth pair and network namespace name (default: nsd)
+  -n --name <name>             Veth pair and network namespace name (default: direct, but keep in mind its concated with "_nsd")
   -c --country <CODE>          Country code to compare if somehow you are still connected through VPN (e.g. VPN tethering)
   -d --dns <ip>                DNS servers in the namespace, use "," separator (default 1.1.1.1, 1.0.0.1)
   -h --hosts-file <file>       /etc/hosts in the namespace
@@ -23,8 +23,8 @@ Options:
 
   --veth0-ip <ip>              Veth0 ip address (default: 198.18.10.1)
   --veth1-ip <ip>              Veth0 ip address (default: 198.18.10.2)
-  --fwmark <fwmark>            Fwmark of the routed packets (default: 105)
-  --table <table>              Routing table of the namespace (default: 105)
+  --fwmark <fwmark>            Fwmark of the routed packets (default: 0x6e736430)
+  --table <table>              Routing table of the namespace (default: 28103, use numbers from 28103 to 28113)
   --nokill                     Don't kill programs inside of namespace
   --nocreate                   Don't create namespace (external program would have to manage 'ip netns add')
 EOF
@@ -37,7 +37,7 @@ define_variables() {
   COUNTRY_CHECK_PID=
   RTMON_PID=
 
-  NAME="nsd"
+  NAME="direct"
   COUNTRY_CHECK=
   VETH0_NAME=
   VETH1_NAME=
@@ -47,8 +47,8 @@ define_variables() {
   HOSTS_FILE=
   PROGRAM=
   PROGRAM_USER="root"
-  FWMARK=105
-  TABLE=105
+  FWMARK=0x6e736430
+  TABLE=28103
   NOKILL=false
   NOCREATE=false
   
@@ -84,6 +84,12 @@ parse_options() {
     exit 1
   fi
 
+  if ! (( $TABLE >= 28103 && $TABLE <= 28113 )); then
+    echo "Table should be in range from 28103 to 28113"
+    exit 1
+  fi
+
+  NAME=$NAME"_nsd"
   VETH0_NAME=$NAME"0"
   VETH1_NAME=$NAME"1"
   IFS=", " read -r NAMESERVER_1 NAMESERVER_2 <<< "$DNS"
@@ -117,10 +123,7 @@ do_rules() {
   ip rule $1 from $VETH1_IP table $TABLE
   ip rule $1 to $VETH1_IP table $TABLE
   ip route $1 $VETH1_IP via $VETH0_IP dev $VETH0_NAME table $TABLE
-}
-
-do_route() {
-  ip route $1 default via $NAMESPACE_GW dev $DEFAULT_IFACE table $TABLE 2> /dev/null
+  ip route $1 default via $NAMESPACE_GW dev $DEFAULT_IFACE table $TABLE
 }
 
 do_iptables() {
@@ -143,9 +146,15 @@ conn_check() {
   (
     sleep 5
     local restart_count=0
+    local connected=true
     
     while true; do
-      if ! ip netns exec $NAME ping -c 1 -W 3 $NAMESERVER_1 &> /dev/null; then
+      if ip netns exec $NAME ping -c 1 -W 3 $NAMESERVER_1 &> /dev/null; then
+        [ "$connected" = false ] && echo "Connection restored"
+        connected=true
+        restart_count=0
+      else
+        connected=false
         ((restart_count++))
         if [ "$restart_count" = 5 ]; then
           echo "No ping from $NAMESERVER_1, restarting"
@@ -195,9 +204,13 @@ country_check() {
 
 rtmon() {
   (
+    sleep 1
     local rtmon_pid=$BASHPID
-    ip monitor route dev $DEFAULT_IFACE | while read -r line; do
-      [[ $line != *"$VETH0_IP"* && $line != *"$TABLE"* && $line != *"$NAME"* && $line == *"Deleted"* ]] && kill $rtmon_pid &> /dev/null
+    ip monitor route | while read -r line; do
+      local table=$(echo $line | awk '{ for(i=1; i<=NF; i++) if($i == "table") print $(i+1) }')
+      local table_is_in_range=false
+      [[ -n "$table" ]] && (($table >= 28103 && $table <= 28113)) && table_is_in_range=true
+      [[ $line != *"$VETH0_IP"* && $line != *"nsd"* && "$table_is_in_range" = false ]] && kill $rtmon_pid &> /dev/null
     done
   ) &
   RTMON_PID=$!
@@ -218,7 +231,6 @@ cleanup() {
     fi
 
     do_rules "del"
-    do_route "del"
     do_iptables "-D" &> /dev/null
     do_blackhole "-D" &> /dev/null
     sysctl -wq net.ipv4.ip_forward=$OLD_IPV4_FORWARD &> /dev/null
@@ -248,7 +260,6 @@ init() {
   ip netns exec $NAME ip link set $VETH1_NAME up
   ip netns exec $NAME ip route add default via $VETH0_IP
   ip netns exec $NAME sysctl -wq net.ipv4.ping_group_range="$(sysctl -n net.ipv4.ping_group_range)"
-  do_rules "add"
 
   mkdir -p /etc/netns/$NAME
   echo -e "nameserver $NAMESERVER_1\nnameserver $NAMESERVER_2" > /etc/netns/$NAME/resolv.conf
@@ -263,7 +274,7 @@ init() {
 
   while true; do
     get_gateway
-    do_route "add"
+    do_rules "add"
     do_iptables "-A"
 
     rtmon 2> /dev/null
@@ -272,7 +283,7 @@ init() {
     wait $RTMON_PID
     kill $CONN_CHECK_PID $COUNTRY_CHECK_PID &> /dev/null
 
-    do_route "del" &> /dev/null
+    do_rules "del" &> /dev/null
     do_blackhole "-D" &> /dev/null
     do_iptables "-D" &> /dev/null
   done
