@@ -142,11 +142,17 @@ do_blackhole() {
 conn_check() {
   (
     sleep 5
+    local restart_count=0
+    
     while true; do
       if ! ip netns exec $NAME ping -c 1 -W 3 $NAMESERVER_1 &> /dev/null; then
-        echo "No ping from $NAMESERVER_1, restarting"
-        kill $RTMON_PID &> /dev/null
-        break
+        ((restart_count++))
+        if [ "$restart_count" = 5 ]; then
+          echo "No ping from $NAMESERVER_1, restarting"
+          kill $RTMON_PID &> /dev/null
+          break
+        fi
+        echo "No ping from $NAMESERVER_1"
       fi
       sleep 10
     done
@@ -191,7 +197,7 @@ rtmon() {
   (
     local rtmon_pid=$BASHPID
     ip monitor route dev $DEFAULT_IFACE | while read -r line; do
-      [[ $line != *"$VETH0_IP"* && $line != *"$TABLE"* && $line != *"$NAME"* ]] && kill $rtmon_pid &> /dev/null
+      [[ $line != *"$VETH0_IP"* && $line != *"$TABLE"* && $line != *"$NAME"* && $line == *"Deleted"* ]] && kill $rtmon_pid &> /dev/null
     done
   ) &
   RTMON_PID=$!
