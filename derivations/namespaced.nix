@@ -14,10 +14,10 @@ in stdenv.mkDerivation {
   installPhase = let 
     binPath = lib.makeBinPath (with pkgs; [
       iproute2
-      libnotify
-      jq
       coreutils
+      inetutils
       sysctl
+      inotify-tools
       iptables
       gawk
       curl
