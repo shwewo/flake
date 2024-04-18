@@ -278,9 +278,9 @@ init() {
     do_rules "add"
     do_iptables "-A"
 
-    rtmon &> /dev/null
-    country_check &> /dev/null
-    conn_check &> /dev/null
+    rtmon 2> /dev/null
+    country_check 2> /dev/null
+    conn_check 2> /dev/null
 
     wait $RTMON_PID &> /dev/null
     pkill -P $RTMON_PID &> /dev/null; kill $RTMON_PID &> /dev/null
