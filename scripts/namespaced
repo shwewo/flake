@@ -34,7 +34,6 @@ define_variables() {
   RUNNING_PID=$$
   CONN_CHECK_PID=
   COUNTRY_CHECK_PID=
-  INOTIFY_PID=
   RTMON_PID=
 
   NAME="direct"
@@ -154,15 +153,14 @@ conn_check() {
         ((restart_count++))
         if [ "$restart_count" = 5 ]; then
           echo "No ping from 1.1.1.1, restarting"
-          kill $RTMON_PID &> /dev/null
+          pkill -P $RTMON_PID &> /dev/null; kill $RTMON_PID &> /dev/null
           break
         fi
         echo "No ping from 1.1.1.1"
       fi
       sleep 10
     done
-  ) &
-  CONN_CHECK_PID=$!
+  ) & CONN_CHECK_PID=$!
 }
 
 country_check() {
@@ -194,8 +192,7 @@ country_check() {
         fi
       done
     fi
-  ) &
-  COUNTRY_CHECK_PID=$!
+  ) & COUNTRY_CHECK_PID=$!
 }
 
 inotify() {
@@ -205,7 +202,6 @@ inotify() {
       [ -n "$HOSTS_FILE" ] && cat $HOSTS_FILE > /etc/netns/$NAME/hosts
     done
   ) &
-  INOTIFY_PID=$!
 }
 
 rtmon() {
@@ -215,17 +211,14 @@ rtmon() {
       local table=$(echo $line | awk '{ for(i=1; i<=NF; i++) if($i == "table") print $(i+1) }')
       local table_is_in_range=false
       [[ -n "$table" ]] && (($table >= 28103 && $table <= 28113)) && table_is_in_range=true
-      [[ $line != *"$VETH0_IP"* && $line != *"nsd"* && "$table_is_in_range" = false ]] && kill $rtmon_pid &> /dev/null
+      [[ $line != *"$VETH0_IP"* && $line != *"nsd"* && "$table_is_in_range" = false ]] && pkill -P $rtmon_pid &> /dev/null
     done
-  ) &
-  RTMON_PID=$!
+  ) & RTMON_PID=$!
 }
 
 cleanup() {
   if [ "$RUNNING" = true ]; then
     RUNNING=false
-
-    kill $COUNTRY_CHECK_PID $RTMON_PID $CONN_CHECK_PID $INOTIFY_PID &> /dev/null
 
     if [ "$NOKILL" = true ]; then
       kill -SIGINT -$RUNNING_PID &> /dev/null
@@ -285,12 +278,14 @@ init() {
     do_rules "add"
     do_iptables "-A"
 
-    rtmon 2> /dev/null
-    country_check 2> /dev/null
-    conn_check 2> /dev/null
+    rtmon &> /dev/null
+    country_check &> /dev/null
+    conn_check &> /dev/null
 
-    wait $RTMON_PID
-    kill $CONN_CHECK_PID $COUNTRY_CHECK_PID &> /dev/null
+    wait $RTMON_PID &> /dev/null
+    pkill -P $RTMON_PID &> /dev/null; kill $RTMON_PID &> /dev/null
+    pkill -P $COUNTRY_CHECK_PID &> /dev/null; kill $COUNTRY_CHECK_PID &> /dev/null
+    pkill -P $CONN_CHECK_PID &> /dev/null; kill $CONN_CHECK_PID &> /dev/null
 
     do_rules "del" &> /dev/null
     do_blackhole "-D" &> /dev/null
