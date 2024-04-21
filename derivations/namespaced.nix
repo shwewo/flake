@@ -19,6 +19,7 @@ in stdenv.mkDerivation {
       sysctl
       inotify-tools
       iptables
+      procps
       gawk
       curl
     ]);

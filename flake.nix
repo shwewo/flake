@@ -22,7 +22,7 @@
           spotify = callPackage ./derivations/spotify.nix { spotify = stable.spotify; };
           microsocks = callPackage ./derivations/microsocks.nix {};
           playit = callPackage ./derivations/playit.nix {};
-          lnxrouter = callPackages ./derivations/lnxrouter.nix { useHavaged = true; };
+          lnxrouter = callPackage ./derivations/lnxrouter.nix { useHaveged = true; };
           tdesktop = tdesktop.packages.${system}.default;
         };
         devShells = with pkgs; {
