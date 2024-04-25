@@ -128,11 +128,11 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1713828397,
-        "narHash": "sha256-p/dwkle519MGwKAC0lJfjUzOdtEirbUASCjCPNAkKXQ=",
+        "lastModified": 1714027575,
+        "narHash": "sha256-Fdq1OGJqJUPgTODVeoDGoKeHae4VvBPzkvINMExHKKU=",
         "owner": "shwewo",
         "repo": "telegram-desktop-patched",
-        "rev": "4c044b3b7b8c93a1ac089859a885ed40e09b18a2",
+        "rev": "93ac3b50d21ce0680639cb4c919389ed7d94315f",
         "type": "github"
       },
       "original": {
