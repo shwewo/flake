@@ -23,6 +23,7 @@
           microsocks = callPackage ./derivations/microsocks.nix {};
           playit = callPackage ./derivations/playit.nix {};
           lnxrouter = callPackage ./derivations/lnxrouter.nix { useHaveged = true; };
+          spoofdpi = callPackage ./derivations/spoofdpi.nix {};
           tdesktop = tdesktop.packages.${system}.default;
         };
         devShells = with pkgs; {
