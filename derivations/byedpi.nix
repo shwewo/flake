@@ -9,7 +9,7 @@ stdenv.mkDerivation {
 
   src = pkgs.fetchurl {
     url = "https://github.com/hufrea/byedpi/releases/download/v0.14.1/byedpi-14.1-x86_64.tar.gz";
-    hash = "";
+    hash = "sha256-CUhfoFFr42pMxQSCGIBR8S1IYK2ReOAi4rrvNuTNfPY=";
   };
 
   installPhase = ''
