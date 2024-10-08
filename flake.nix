@@ -23,6 +23,7 @@
           playit = callPackage ./derivations/playit.nix {};
           lnxrouter = callPackage ./derivations/lnxrouter.nix { useHaveged = true; };
           spoofdpi = callPackage ./derivations/spoofdpi.nix {};
+          byedpi = callPackage ./derivations/byedpi.nix {};
           tdesktop = tdesktop.packages.${system}.default;
         };
         devShells = with pkgs; {
