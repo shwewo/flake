@@ -40,15 +40,20 @@ else
     --text="Please configure your settings" \
     --add-combo="Browser:" --combo-values="google_chrome|chromium|firefox" \
     --add-combo="Network Interface:" --combo-values="novpn|default|"$interfaces \
-    --add-combo="DNS Server:" --combo-values="dhcp|1.1.1.1|8.8.8.8|77.88.8.1")
-
+    --add-combo="DNS Server:" --combo-values="dhcp|1.1.1.1|8.8.8.8|77.88.8.1" \
+    --add-combo="Clear browser:" --combo-values="no|yes")
   if [[ -z $result ]]; then
     exit 1
   fi
 
   browser=$(echo "$result" | cut -d'|' -f1)
-  interface=$(echo "$result" | cut -d'|' -f2) 
+  interface=$(echo "$result" | cut -d'|' -f2)
   dns=$(echo "$result" | cut -d'|' -f3)
+  clear=$(echo "$result" | cut -d'|' -f4)
+
+  if [[ $clear == "yes" ]]; then
+   rm -rf /tmp/ephemeralbrowser
+  fi
 
   if [[ $dns == "dhcp" ]]; then
     if [[ $interface == "novpn" || $interface == "default" ]]; then
@@ -56,7 +61,7 @@ else
     else
       dhcp_interface=$interface
     fi
-    
+
     dns=$(nmcli device show $dhcp_interface | awk '/IP4.DNS/ {print $2}')
   fi
 
