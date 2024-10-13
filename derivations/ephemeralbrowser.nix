@@ -17,7 +17,7 @@ in stdenv.mkDerivation {
       google-chrome
       ungoogled-chromium
       firefox
-      gnome.zenity
+      zenity
       libnotify
     ]);
   in ''
