@@ -21,8 +21,8 @@ Options:
   -p --program                 Program to launch in the namespace (graphical apps may require sudo -E)
   -u --user                    User to launch --program, default is root, you may specify it as \$USER
 
-  --veth0-ip <ip>              Veth0 ip address (default: 192.0.0.1)
-  --veth1-ip <ip>              Veth0 ip address (default: 192.0.0.2)
+  --veth0-ip <ip>              Veth0 ip address (default: 10.42.0.1)
+  --veth1-ip <ip>              Veth0 ip address (default: 10.42.0.2)
   --fwmark <fwmark>            Fwmark of the routed packets (default: 0x6e736430)
   --table <table>              Routing table of the namespace (default: 28103, use numbers from 28103 to 28113)
   --nokill                     Don't kill programs inside of namespace
@@ -40,8 +40,8 @@ define_variables() {
   COUNTRY_CHECK=
   VETH0_NAME=
   VETH1_NAME=
-  VETH0_IP="192.0.0.1"
-  VETH1_IP="192.0.0.2"
+  VETH0_IP="10.42.0.1"
+  VETH1_IP="10.42.0.2"
   DNS="1.1.1.1, 1.0.0.1"
   HOSTS_FILE=
   PROGRAM=
