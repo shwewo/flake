@@ -24,6 +24,7 @@
           lnxrouter = callPackage ./derivations/lnxrouter.nix { useHaveged = true; };
           spoofdpi = callPackage ./derivations/spoofdpi.nix {};
           byedpi = callPackage ./derivations/byedpi.nix {};
+          sing-box = callPackage ./derivations/sing-box.nix {};
           tdesktop = tdesktop.packages.${system}.default;
         };
         devShells = with pkgs; {

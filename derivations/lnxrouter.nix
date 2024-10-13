@@ -30,7 +30,7 @@
 # To fall back to haveged if entropy is low.
 # Defaulting to false because not having it does not break things.
 # If it is really needed, warnings will be logged to journal.
-, useHaveged ? false
+, useHaveged ? true
 , haveged
 # You only need this if you wish to show WiFi QR codes in terminal
 , useQrencode ? true
@@ -40,7 +40,7 @@ let
   bin = ../scripts/lnxrouter;
 in stdenv.mkDerivation rec {
   pname = "linux-router";
-  version = "0.7.3";
+  version = "0.7.6";
 
   dontUnpack = true;
   dontBuild = true;

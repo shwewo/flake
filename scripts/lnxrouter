@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION=0.7.6b
+VERSION=0.7.6
 PROGNAME="$(basename "$0")"
 
 export LC_ALL=C
@@ -47,7 +47,7 @@ Options:
     --dns <ip>|<port>|<ip:port>
                             DNS server's upstream DNS.
                             Use ',' to seperate multiple servers
-                            (default: use /etc/resolve.conf)
+                            (default: use /etc/resolv.conf)
                             (Note IPv6 addresses need '[]' around)
     --no-dns                Do not serve DNS
     --no-dnsmasq            Disable dnsmasq server (DHCP, DNS, RA)
@@ -74,6 +74,8 @@ Options:
     --tp <port>             Transparent proxy,
                             redirect non-LAN TCP and UDP(not tested) traffic to
                             port. (usually used with '--dns')
+    --tpu <port>            Transparent proxy,
+                            redirect UDP traffic to port.
     
   WiFi hotspot options:
     --ap <wifi interface> <SSID>
@@ -171,6 +173,7 @@ define_global_variables(){
     INTERNET_IFACE= # which interface to get Internet from
     THISHOSTNAME=   # this host's name the DNS tells clients 
     TP_PORT=  # transparent proxy port
+    TPU_PORT= # transparent proxy port udp (optional)
     DNS=  # upstream DNS
     MAC_USE_RANDOM=0
     NEW_MACADDR=
@@ -268,8 +271,11 @@ parse_user_options(){
                 SHARE_METHOD=redsocks
                 shift
                 ;;
-                
-                
+            --tpu)
+                shift
+                TPU_PORT="$1"
+                shift
+                ;;
             -g)
                 shift
                 GATEWAY4="$1"
@@ -862,7 +868,7 @@ get_pid_by_dbus_name() {
     
     which dbus-send >/dev/null 2>&1 || return 1
     
-    pid="$( dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.GetConnectionUnixProcessID string:$DBUS_NAME | grep "   uint32 " | awk '{print $2}' )" 2>/dev/null
+    pid="$( dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.GetConnectionUnixProcessID string:$DBUS_NAME  2>/dev/null | grep "   uint32 " | awk '{print $2}' )"
     r=$?
     
     echo "$pid"
@@ -1195,7 +1201,13 @@ start_redsocks() {
     local s iv
     
     echo
-    echo "iptables: transparent proxy non-LAN TCP and UDP(not tested) traffic to port ${TP_PORT}"
+
+    if [ "$TPU_PORT" ]; then
+        echo "iptables: transparent proxy non-LAN TCP traffic to port ${TP_PORT}"
+        echo "iptables: transparent proxy non-LAN UDP traffic to port ${TPU_PORT}"
+    else
+        echo "iptables: transparent proxy non-LAN TCP and UDP(not tested) traffic to port ${TP_PORT}"
+    fi
     
     for iv in "${IP_VERs[@]}"; do
         [[ "$iv" -eq "4" && ! $NO4 -eq 0 ]] && continue
@@ -1216,14 +1228,24 @@ start_redsocks() {
             iptb "$iv" n nat A lrt${$}${SUBNET_IFACE}-TP -d "$s" -j RETURN || die
         done
 
-        iptb "$iv" v nat A lrt${$}${SUBNET_IFACE}-TP -p tcp -j REDIRECT --to-ports ${TP_PORT} || die
-        iptb "$iv" v nat A lrt${$}${SUBNET_IFACE}-TP -p udp -j REDIRECT --to-ports ${TP_PORT} || die
+        if [ "$TPU_PORT" ]; then
+            echo "Here fuck you"
+            iptb "$iv" v nat A lrt${$}${SUBNET_IFACE}-TP -p tcp -j REDIRECT --to-ports ${TP_PORT} || die
+            iptb "$iv" v nat A lrt${$}${SUBNET_IFACE}-TP -p udp -j REDIRECT --to-ports ${TPU_PORT} || die
 
-        iptb "$iv" v nat I PREROUTING -i "$SUBNET_IFACE" -s "$SUBNET_NET" -j lrt${$}${SUBNET_IFACE}-TP || die
+            iptb "$iv" v nat I PREROUTING -i "$SUBNET_IFACE" -s "$SUBNET_NET" -j lrt${$}${SUBNET_IFACE}-TP || die
+            
+            iptb "$iv" v filter I INPUT -i "$SUBNET_IFACE" -s "$SUBNET_NET" -p tcp -m tcp --dport ${TP_PORT}  -j ACCEPT || die
+            iptb "$iv" v filter I INPUT -i "$SUBNET_IFACE" -s "$SUBNET_NET" -p udp -m udp --dport ${TPU_PORT}  -j ACCEPT || die
+        else
+            iptb "$iv" v nat A lrt${$}${SUBNET_IFACE}-TP -p tcp -j REDIRECT --to-ports ${TP_PORT} || die
+            iptb "$iv" v nat A lrt${$}${SUBNET_IFACE}-TP -p udp -j REDIRECT --to-ports ${TP_PORT} || die
 
-        
-        iptb "$iv" v filter I INPUT -i "$SUBNET_IFACE" -s "$SUBNET_NET" -p tcp -m tcp --dport ${TP_PORT}  -j ACCEPT || die
-        iptb "$iv" v filter I INPUT -i "$SUBNET_IFACE" -s "$SUBNET_NET" -p udp -m udp --dport ${TP_PORT}  -j ACCEPT || die
+            iptb "$iv" v nat I PREROUTING -i "$SUBNET_IFACE" -s "$SUBNET_NET" -j lrt${$}${SUBNET_IFACE}-TP || die
+
+            iptb "$iv" v filter I INPUT -i "$SUBNET_IFACE" -s "$SUBNET_NET" -p tcp -m tcp --dport ${TP_PORT}  -j ACCEPT || die
+            iptb "$iv" v filter I INPUT -i "$SUBNET_IFACE" -s "$SUBNET_NET" -p udp -m udp --dport ${TP_PORT}  -j ACCEPT || die
+        fi
     done
 }
 
@@ -2256,7 +2278,7 @@ fi
 disable_unwanted_forwarding 
 
 
-# f--subnet interface up
+# bring subnet interface up
 ip link set up dev "${SUBNET_IFACE}" || die "Failed bringing ${SUBNET_IFACE} up"
 
 # hostapd , haveged
