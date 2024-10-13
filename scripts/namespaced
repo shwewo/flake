@@ -89,7 +89,7 @@ parse_options() {
   VETH0_NAME=$NAME"0"
   VETH1_NAME=$NAME"1"
 
-  if [ -d "/etc/netns/$NAME" ]; then
+  if ip netns list | grep -q "$NAME"; then
     echo "This script is already running!"
     exit 1
   fi
