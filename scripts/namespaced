@@ -236,8 +236,8 @@ cleanup() {
 
     ip link del $VETH0_NAME &> /dev/null
     ip netns del $NAME &> /dev/null
-    rm -rf /etc/netns/$NAME/ &> /dev/null
-    rm -rf /var/run/netns/$NAME/ &> /dev/null
+    rm -rf /etc/netns/$NAME &> /dev/null
+    rm -rf /var/run/netns/$NAME &> /dev/null
     sysctl -wq net.ipv4.ip_forward=$OLD_IPV4_FORWARD &> /dev/null
 
     do_rules "del" &> /dev/null
