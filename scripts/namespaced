@@ -118,6 +118,7 @@ do_rules() {
   ip rule $1 to $VETH1_IP table $TABLE
   ip rule $1 fwmark $FWMARK table $TABLE
   ip route $1 $VETH1_IP via $VETH0_IP dev $VETH0_NAME table $TABLE
+  echo "ip route $1 default via $NAMESPACE_GW dev $DEFAULT_IFACE table $TABLE"
   ip route $1 default via $NAMESPACE_GW dev $DEFAULT_IFACE table $TABLE
 }
 

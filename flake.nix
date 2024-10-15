@@ -25,6 +25,7 @@
           spoofdpi = callPackage ./derivations/spoofdpi.nix {};
           byedpi = callPackage ./derivations/byedpi.nix {};
           sing-box = callPackage ./derivations/sing-box.nix {};
+          grafana-to-ntfy = callPackage ./derivations/grafana-to-ntfy.nix {};
           tdesktop = tdesktop.packages.${system}.default;
         };
         devShells = with pkgs; {
