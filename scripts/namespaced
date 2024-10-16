@@ -26,6 +26,7 @@ Options:
   --fwmark <fwmark>            Fwmark of the routed packets (default: 0x6e736430)
   --table <table>              Routing table of the namespace (default: 28103, use numbers from 28103 to 28113)
   --nokill                     Don't kill programs inside of namespace
+  --dontcreate                 Don't create network namespace (external program will manage it, e.g systemd)
 EOF
 }
 
@@ -49,6 +50,7 @@ define_variables() {
   FWMARK=0x6e736430
   TABLE=28103
   NOKILL=false
+  DONTCREATENS=false
   
   NAMESPACE_GW=
   DEFAULT_IFACE=
@@ -71,6 +73,7 @@ parse_options() {
       --fwmark) shift; FWMARK=$1; shift ;;
       --table) shift; TABLE=$1; shift ;;
       --nokill) shift; NOKILL=true ;;
+      --dontcreate) shift; DONTCREATENS=true ;;
       *) echo "Invalid parameter: $1" 1>&2; exit 1 ;;
     esac
   done
@@ -89,9 +92,16 @@ parse_options() {
   VETH0_NAME=$NAME"0"
   VETH1_NAME=$NAME"1"
 
-  if ip netns list | grep -q "$NAME"; then
-    echo "This script is already running!"
-    exit 1
+  if [ "$DONTCREATENS" = false ]; then
+    if ip netns list | grep -q "$NAME"; then
+      echo "This script is already running!"
+      exit 1
+    fi
+  else
+    if ip a | grep -q "$VETH0_NAME"; then
+      echo "This script is already running!"
+      exit 1
+    fi
   fi
 }
 
@@ -250,7 +260,15 @@ cleanup() {
 }
 
 init() {
-  ip netns add $NAME
+  if [ "$DONTCREATENS" = true ]; then
+    if ! ip netns list | grep -q "$NAME"; then
+      echo "Namespace $NAME doesn't exist, exiting"
+      cleanup
+    fi
+  else 
+    ip netns add $NAME
+  fi
+
   ip link add $VETH0_NAME type veth peer name $VETH1_NAME
   ip link set $VETH1_NAME netns $NAME
   ip addr add $VETH0_IP/24 dev $VETH0_NAME
