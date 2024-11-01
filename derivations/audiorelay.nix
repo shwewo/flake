@@ -43,7 +43,7 @@ pkgs.stdenv.mkDerivation rec {
       #$(find "$out/lib/runtime/lib" -type f -name 'lib*.so' -a -not -name 'libj*.so')
       wrapProgram $out/bin/AudioRelay \
         --prefix LD_LIBRARY_PATH : $out/lib/runtime/lib/ \
-        --prefix LD_LIBRARY_PATH : ${pkgs.alsaLib}/lib/ \
+        --prefix LD_LIBRARY_PATH : ${pkgs.alsa-lib}/lib/ \
         --prefix LD_LIBRARY_PATH : ${pkgs.fontconfig.lib}/lib/ \
         --prefix LD_LIBRARY_PATH : ${pkgs.freetype}/lib/ \
         --prefix LD_LIBRARY_PATH : ${pkgs.libglvnd}/lib/ \
