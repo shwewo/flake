@@ -16,7 +16,7 @@ pkgs.stdenv.mkDerivation rec {
 
   buildInputs = with pkgs; [
     jdk
-    alsaLib
+    alsa-lib
     file
     fontconfig.lib
     freetype
