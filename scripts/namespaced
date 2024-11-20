@@ -315,3 +315,4 @@ define_variables
 parse_options "$@"
 trap cleanup EXIT INT TERM SIGTERM QUIT
 init "$@"
+wait
