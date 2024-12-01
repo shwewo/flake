@@ -97,11 +97,6 @@ parse_options() {
       echo "This script is already running!"
       exit 1
     fi
-  else
-    if ip a | grep -q "$VETH0_NAME"; then
-      echo "This script is already running!"
-      exit 1
-    fi
   fi
 }
 
@@ -227,6 +222,17 @@ rtmon() {
 }
 
 cleanup() {
+  ip link del $VETH0_NAME &> /dev/null
+  rm -rf /etc/netns/$NAME &> /dev/null
+  rm -rf /var/run/netns/$NAME &> /dev/null
+  sysctl -wq net.ipv4.ip_forward=$OLD_IPV4_FORWARD &> /dev/null
+
+  do_rules "del" &> /dev/null
+  do_iptables "-D" &> /dev/null
+  do_blackhole "-D" &> /dev/null
+}
+
+exit_cleanup() {
   if [ "$RUNNING" = true ]; then
     RUNNING=false
 
@@ -243,16 +249,8 @@ cleanup() {
       kill -SIGTERM -$RUNNING_PID &> /dev/null
     fi
 
-    ip link del $VETH0_NAME &> /dev/null
     ip netns del $NAME &> /dev/null
-    rm -rf /etc/netns/$NAME &> /dev/null
-    rm -rf /var/run/netns/$NAME &> /dev/null
-    sysctl -wq net.ipv4.ip_forward=$OLD_IPV4_FORWARD &> /dev/null
-
-    do_rules "del" &> /dev/null
-    do_iptables "-D" &> /dev/null
-    do_blackhole "-D" &> /dev/null
-
+    cleanup
     echo "Exiting..."
     exit 0
   fi
@@ -262,12 +260,16 @@ init() {
   if [ "$DONTCREATENS" = true ]; then
     if ! ip netns list | grep -q "$NAME"; then
       echo "Namespace $NAME doesn't exist, exiting"
+      exit_cleanup
+    else
       cleanup
     fi
-  else 
+  else
+    ip netns del $NAME &> /dev/null
+    cleanup
     ip netns add $NAME
   fi
-
+  
   ip link add $VETH0_NAME type veth peer name $VETH1_NAME
   ip link set $VETH1_NAME netns $NAME
   ip addr add $VETH0_IP/24 dev $VETH0_NAME
@@ -313,6 +315,6 @@ init() {
 
 define_variables
 parse_options "$@"
-trap cleanup EXIT INT TERM SIGTERM QUIT
+trap exit_cleanup EXIT INT TERM SIGTERM QUIT
 init "$@"
 wait
