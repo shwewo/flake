@@ -11,12 +11,12 @@
 
 buildGoModule rec {
   pname = "sing-box";
-  version = "1.10.5";
+  version = "1.11.0-beta.20";
 
   src = fetchFromGitHub {
     owner = "SagerNet";
     repo = pname;
-    rev = "9c4ab0bf336fe3ff41033686817015eee452e45f";
+    rev = "${version}";
     hash = "sha256-ZqcQe2d4IoF7fA2rMASFvGCuiTL+lqQqCpCt/IviClU=";
   };
 
@@ -31,6 +31,7 @@ buildGoModule rec {
     "with_reality_server"
     "with_acme"
     "with_clash_api"
+    "with_v2ray_api"
     "with_gvisor"
   ];
 
